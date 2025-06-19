@@ -1,140 +1,22 @@
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { Transaction, PublicKey } from "@solana/web3.js";
-import { NATIVE_MINT } from "@solana/spl-token";
-import {
-  USDCMint,
-  getATAAddress,
-  printSimulate,
-  addComputeBudget,
-  DEVNET_PROGRAM_ID,
-} from "@raydium-io/raydium-sdk-v2";
-import {
-  buidSwapInstruction,
-  getCpmmPool,
-  getPoolInfo,
-  getSwapRoute,
-} from "./raydiumService";
-import { createPool } from "./createCpmmPool";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { getCpmmPool } from "./raydiumService";
 import { raydiumCpmmSwap } from "./swap";
 import { useEffect, useState } from "react";
 import { initSdk } from "../config";
 
-const custom_poolId = "3Mmok2Rj2ktoz31Qs4VMxFy5jLGR4CpLVd6EwJ9KYToL";
-
 export const RaydiumSwap = () => {
-  const { connection } = useConnection();
-  const { publicKey, signTransaction, signAllTransactions } = useWallet();
-  const [amount, setAmount] = useState(0);
+  const { publicKey, signAllTransactions } = useWallet();
+  const [amount, setAmount] = useState("");
+  const [sellAmount, setSellAmount] = useState("");
   const [cpmmPoolId, setCpmmPoolId] = useState("");
 
-  const swapBaseOutInstruction = async (
-    inputPublicKey: PublicKey = USDCMint
-  ) => {
-    if (!publicKey || !signTransaction) {
-      throw new Error("Wallet not connected");
-    }
-
-    const inputMint = inputPublicKey.toBase58();
-    const outputMint = NATIVE_MINT.toBase58();
-    const amount = 100000;
-    const slippage = 0.5; // 0.5%
-    const txVersion: "LEGACY" | "VO" = "LEGACY";
-
-    // 1. 获取 Raydium 的 Swap 路由
-    const swapResponse = await getSwapRoute(
-      inputMint,
-      outputMint,
-      amount,
-      slippage,
-      txVersion
-    );
-
-    if (!swapResponse.success) {
-      throw new Error(swapResponse.msg);
-    }
-
-    // 2. 获取流动性池信息
-    const res = await getPoolInfo(swapResponse);
-    console.info(res, swapResponse);
-
-    const allMints = res.data.data.map((r) => [r.mintA, r.mintB]).flat();
-    const [mintAProgram, mintBProgram] = [
-      allMints.find((m) => m.address === inputMint)!.programId,
-      allMints.find((m) => m.address === outputMint)!.programId,
-    ];
-
-    // 3. 获取输入/输出代币的 ATA
-    const inputAccount = getATAAddress(
-      publicKey,
-      new PublicKey(inputMint),
-      new PublicKey(mintAProgram)
-    ).publicKey;
-    const outputAccount = getATAAddress(
-      publicKey,
-      new PublicKey(outputMint),
-      new PublicKey(mintBProgram)
-    ).publicKey;
-
-    // 4. 构建 Swap 指令
-    const frontRunIns = buidSwapInstruction(
-      publicKey,
-      inputAccount,
-      outputAccount,
-      swapResponse,
-      res.data.data
-    );
-
-    // const backRunIns = buidSwapInstruction(
-    //   publicKey,
-    //   outputAccount,
-    //   inputAccount,
-    //   swapResponse,
-    //   res.data.data
-    // );
-
-    // 5. 添加计算预算
-    const { instructions } = addComputeBudget({
-      units: 600000,
-      microLamports: 6000000,
-    });
-
-    // 6. 构建交易
-    const recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-    const tx = new Transaction();
-    instructions.forEach((ins) => tx.add(ins));
-    tx.add(frontRunIns);
-
-    //To do. Wait target transaction?
-
-    // tx.add(backRunIns);
-    tx.feePayer = publicKey;
-    tx.recentBlockhash = recentBlockhash;
-
-    // 7. 使用钱包签名（而不是 tx.sign(owner)）
-    const signedTx = await signTransaction(tx);
-
-    // 8. 模拟交易
-    printSimulate([signedTx]);
-
-    // 9. 发送交易（可选）
-    const txId = await connection.sendRawTransaction(signedTx.serialize());
-    console.log("Transaction sent:", txId);
-  };
-
-  const swapToken = async () => {
-    raydiumCpmmSwap(cpmmPoolId, 0.001, amount);
-  };
-
-  const createCpmmPool = () => {
-    if (!publicKey || !signAllTransactions) {
+  const swapToken = async (action: "buy" | "sell") => {
+    const inputAmount = action === "buy" ? amount : sellAmount;
+    if (!cpmmPoolId || !Number(inputAmount)) {
+      console.info("Empty pool address or empty amount");
       return;
     }
-    createPool(
-      publicKey,
-      signAllTransactions,
-      "GuCjj3qXmcXkuPLfu9WK6AuPc28fQmsEct35rtrYSxuk",
-      NATIVE_MINT.toBase58()
-    );
+    raydiumCpmmSwap(cpmmPoolId, 0.001, Number(inputAmount), action);
   };
 
   const fetchPoolInfo = () => {
@@ -161,15 +43,6 @@ export const RaydiumSwap = () => {
       <div className="token-transfer-container">
         <h2>代币转账</h2>
 
-        <button
-          onClick={() => {
-            createCpmmPool();
-          }}
-          disabled={!publicKey}
-        >
-          Create Cpmm Pool
-        </button>
-
         {publicKey && (
           <div className="form-container">
             {/* 收款地址 */}
@@ -192,21 +65,41 @@ export const RaydiumSwap = () => {
             <div className="form-group">
               <label>Amout to buy in SOL</label>
               <input
-                type="number"
+                type="text"
                 value={amount}
-                onChange={(e) => setAmount(Number(e.target.value))}
+                onChange={(e) => setAmount(e.target.value)}
                 placeholder="0"
               />
             </div>
 
             <button
               onClick={() => {
-                swapToken();
+                swapToken("buy");
               }}
               className="transfer-button"
               disabled={!publicKey}
             >
-              Swap
+              Buy
+            </button>
+
+            <div className="form-group">
+              <label>Amout to sell in SOL</label>
+              <input
+                type="text"
+                value={sellAmount}
+                onChange={(e) => setSellAmount(e.target.value)}
+                placeholder="0"
+              />
+            </div>
+
+            <button
+              onClick={() => {
+                swapToken("sell");
+              }}
+              className="transfer-button"
+              disabled={!publicKey}
+            >
+              Sell
             </button>
           </div>
         )}

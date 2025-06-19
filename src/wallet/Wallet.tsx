@@ -20,6 +20,7 @@ import { Tabs } from "antd";
 import TokenTransfer from "../tokenTransfer/tokenTransfer";
 import PumpSwap from "../transaction/pumpSwap/pumpSwap";
 import { RaydiumSwap } from "../transaction/raydiumSwap/RaydiumSwap";
+import { CreatePoolComponent } from "../transaction/raydiumSwap/creaetCpmmPool";
 
 export const Wallet: FC = () => {
   const { connection } = useConnection();
@@ -89,11 +90,11 @@ export const Wallet: FC = () => {
             key: "mint",
             children: <MintTokens></MintTokens>,
           },
-          // {
-          //   label: "销毁代币",
-          //   key: "destroy",
-          //   children: "",
-          // },
+          {
+            label: "创建Cpmm流动性池",
+            key: "createPool",
+            children: <CreatePoolComponent />,
+          },
         ]}
       />
     </div>

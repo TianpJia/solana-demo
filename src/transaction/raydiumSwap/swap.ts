@@ -11,23 +11,23 @@ import { NATIVE_MINT } from "@solana/spl-token";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 
 export const raydiumCpmmSwap = async (
-  poolId: string = "7JuwJuNU88gurFnyWeiyGKbFmExMWcmRZntn9imEzdny",
+  poolId: string,
   slippage = 0.001,
-  amount = 10
+  amount = 10, // 始终表示SOL的数量
+  action: "buy" | "sell" = "buy"
 ) => {
   try {
     const raydium = await initSdk();
 
-    const inputAmount = new BN(amount * LAMPORTS_PER_SOL);
-    const inputMint = NATIVE_MINT.toBase58();
+    let inputAmount: BN;
+    let inputMint: string;
+    let outputMint: string = NATIVE_MINT.toBase58(); // 默认输出是SOL
 
     let poolInfo: ApiV3PoolInfoStandardItemCpmm;
     let poolKeys: CpmmKeys | undefined;
     let rpcData: CpmmRpcData;
 
     if (raydium.cluster === "mainnet") {
-      // note: api doesn't support get devnet pool info, so in devnet else we go rpc method
-      // if you wish to get pool info from rpc, also can modify logic to go rpc method directly
       const data = await raydium.api.fetchPoolById({ ids: poolId });
       poolInfo = data[0] as ApiV3PoolInfoStandardItemCpmm;
       if (!isValidCpmm(poolInfo.programId))
@@ -38,17 +38,55 @@ export const raydiumCpmmSwap = async (
       poolInfo = data.poolInfo;
       poolKeys = data.poolKeys;
       rpcData = data.rpcData;
+      console.log({
+        baseReserve: rpcData.baseReserve.toString(), // 通常是 SOL 的储备
+        quoteReserve: rpcData.quoteReserve.toString(), // 另一种代币的储备
+      });
     }
 
-    if (
-      inputMint !== poolInfo.mintA.address &&
-      inputMint !== poolInfo.mintB.address
-    )
-      throw new Error("input mint does not match pool");
+    // 确定交易对中的代币
+    const solMint = NATIVE_MINT.toBase58();
+    const tokenMint =
+      poolInfo.mintA.address === solMint
+        ? poolInfo.mintB.address
+        : poolInfo.mintA.address;
+
+    if (action === "buy") {
+      // 买入：用SOL买代币
+      inputMint = solMint;
+      inputAmount = new BN(amount * LAMPORTS_PER_SOL);
+    } else {
+      // 卖出：计算需要多少代币才能获得指定数量的SOL
+      inputMint = tokenMint;
+
+      // 计算反向交换：从想要的SOL数量计算需要的代币数量
+      const desiredSolAmount = new BN(amount * LAMPORTS_PER_SOL);
+      console.info(
+        desiredSolAmount.toString(),
+        rpcData.configInfo!.tradeFeeRate.toString()
+      );
+      // 使用CurveCalculator计算需要的代币输入量
+      const calculateResult = CurveCalculator.swap(
+        desiredSolAmount,
+        poolInfo.mintA.address !== solMint
+          ? rpcData.quoteReserve
+          : rpcData.baseReserve, // 代币储备
+        poolInfo.mintA.address !== solMint
+          ? rpcData.baseReserve
+          : rpcData.quoteReserve, // SOL储备
+        rpcData.configInfo!.tradeFeeRate
+      );
+
+      inputAmount = calculateResult.destinationAmountSwapped;
+      console.info(
+        calculateResult.destinationAmountSwapped.toString(),
+        "swap result"
+      );
+    }
 
     const baseIn = inputMint === poolInfo.mintA.address;
 
-    // swap pool mintA for mintB
+    // 执行实际交换
     const swapResult = CurveCalculator.swap(
       inputAmount,
       baseIn ? rpcData.baseReserve : rpcData.quoteReserve,
@@ -56,41 +94,25 @@ export const raydiumCpmmSwap = async (
       rpcData.configInfo!.tradeFeeRate
     );
 
-    /**
-     * swapResult.sourceAmountSwapped -> input amount
-     * swapResult.destinationAmountSwapped -> output amount
-     * swapResult.tradeFee -> this swap fee, charge input mint
-     */
-
     const { execute } = await raydium.cpmm.swap({
       poolInfo,
       poolKeys,
       inputAmount,
       swapResult,
-      slippage, // range: 1 ~ 0.0001, means 100% ~ 0.01%
+      slippage,
       baseIn,
-      // optional: set up priority fee here
-      computeBudgetConfig: {
-        units: 600000,
-        microLamports: 4659150,
-      },
-
-      // optional: add transfer sol to tip account instruction. e.g sent tip to jito
-      // txTipConfig: {
-      //   address: new PublicKey("96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5"),
-      //   amount: new BN(10000000), // 0.01 sol
-      // },
     });
 
-    // don't want to wait confirm, set sendAndConfirm to false or don't pass any params to execute
     const { txId } = await execute({ sendAndConfirm: true });
-    console.log(
-      `swapped: ${poolInfo.mintA.symbol} to ${poolInfo.mintB.symbol}:`,
-      {
-        txId: `https://explorer.solana.com/tx/${txId}`,
-      }
-    );
+    console.log(`${action === "buy" ? "Bought" : "Sold"}:`, {
+      action,
+      inputMint,
+      outputMint,
+      inputAmount: inputAmount.toString(),
+      expectedOutput: swapResult.destinationAmountSwapped.toString(),
+      txId: `https://explorer.solana.com/tx/${txId}`,
+    });
   } catch (error) {
-    console.info(error);
+    console.error("Swap failed:", error);
   }
 };

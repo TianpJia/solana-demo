@@ -41,8 +41,6 @@ export const CreateAssociatedToken: FC = () => {
         lastValidBlockHeight: block.lastValidBlockHeight,
       });
       console.info("Create ATA success");
-      setMintAddress("");
-      setOwnerAddress("");
     } catch (error) {}
   };
   return (
