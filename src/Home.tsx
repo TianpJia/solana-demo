@@ -15,8 +15,8 @@ import { clusterApiUrl } from "@solana/web3.js";
 // Default styles that can be overridden by your app
 import "@solana/wallet-adapter-react-ui/styles.css";
 import { Wallet } from "./wallet/Wallet";
-import { TxListener } from "./TxListener/TxListener";
-import { RaydiumSwap } from "./transaction/raydiumSwap/RaydiumSwap";
+// import { CUSTOM_RPC_URL } from "./transaction/config";
+import { CUSTOM_RPC_URL } from "./transaction/config";
 
 export const Home: FC = () => {
   // The network can be set to 'devnet', 'testnet', or 'mainnet-beta'.
@@ -24,9 +24,8 @@ export const Home: FC = () => {
   // const network = WalletAdapterNetwork.Mainnet;
 
   // You can also provide a custom RPC endpoint.
-  const endpoint = useMemo(() => clusterApiUrl(network), [network]);
-  // const endpoint =
-  //   "https://mainnet.helius-rpc.com/?api-key=55e26ca4-1245-4d39-a0bc-60329bde9922";
+  // const endpoint = useMemo(() => clusterApiUrl(network), [network]);
+  const endpoint = CUSTOM_RPC_URL;
 
   const wallets = useMemo(
     () => [
@@ -43,7 +42,6 @@ export const Home: FC = () => {
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
           <Wallet></Wallet>
-          {/* <TxListener programId="HwGqFnPY6H2sGFoDUMYqr63geoR6Tb8yrfnKGLMnARzj"></TxListener> */}
         </WalletModalProvider>
       </WalletProvider>
     </ConnectionProvider>

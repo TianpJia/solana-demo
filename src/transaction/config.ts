@@ -1,13 +1,13 @@
 import { Raydium, TxVersion } from "@raydium-io/raydium-sdk-v2";
 import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
 
-// export const owner: Keypair = Keypair.fromSecretKey(
-//   bs58.decode("<YOUR_WALLET_SECRET_KEY>")
-// );
-// export const connection = new Connection("<YOUR_RPC_URL>"); //<YOUR_RPC_URL>
+export const CUSTOM_RPC_URL =
+  "https://mainnet.helius-rpc.com/?api-key=55e26ca4-1245-4d39-a0bc-60329bde9922";
+// export const connection = new Connection(CUSTOM_RPC_URL); //<YOUR_RPC_URL>
 export const connection = new Connection(clusterApiUrl("devnet")); //<YOUR_RPC_URL>
 export const txVersion = TxVersion.V0; // or TxVersion.LEGACY
 const cluster = "devnet"; // 'mainnet' | 'devnet'
+// const cluster = "mainnet"; // 'mainnet' | 'devnet'
 
 let raydium: Raydium | undefined;
 export const initSdk = async (params?: {

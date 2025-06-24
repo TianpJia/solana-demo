@@ -21,6 +21,7 @@ import TokenTransfer from "../tokenTransfer/tokenTransfer";
 import PumpSwap from "../transaction/pumpSwap/pumpSwap";
 import { RaydiumSwap } from "../transaction/raydiumSwap/RaydiumSwap";
 import { CreatePoolComponent } from "../transaction/raydiumSwap/creaetCpmmPool";
+import { TxListener } from "../TxListener/TxListener";
 
 export const Wallet: FC = () => {
   const { connection } = useConnection();
@@ -58,8 +59,13 @@ export const Wallet: FC = () => {
       <WalletDisconnectButton />
       <p>{publicKey ? `Balance: ${balance} SOL` : ""}</p>
       <Tabs
-        defaultActiveKey="transaction"
+        defaultActiveKey="listener"
         items={[
+          {
+            label: "Raydium监听",
+            key: "listener",
+            children: <TxListener></TxListener>,
+          },
           {
             label: "Raydium交易",
             key: "transaction",
