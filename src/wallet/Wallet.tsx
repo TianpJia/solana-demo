@@ -72,6 +72,11 @@ export const Wallet: FC = () => {
             children: <RaydiumSwap></RaydiumSwap>,
           },
           {
+            label: "pumpfun交易",
+            key: "pumpSwap",
+            children: <PumpSwap></PumpSwap>,
+          },
+          {
             label: "创建代币",
             key: "createToken",
             children: <CreateToken></CreateToken>,

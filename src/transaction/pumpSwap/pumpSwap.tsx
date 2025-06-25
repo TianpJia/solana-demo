@@ -1,17 +1,20 @@
 import { useState, useEffect } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { Transaction } from "@solana/web3.js";
+import { LAMPORTS_PER_SOL, PublicKey, Transaction } from "@solana/web3.js";
 import axios from "axios";
+import BN from "bn.js";
+import { PumpAmmSdk } from "@pump-fun/pump-swap-sdk";
 
 // Pump.fun API 端点
 const PUMP_API = "https://api.pump.fun";
 
 export default function PumpSwap() {
   const { connection } = useConnection();
-  const { publicKey, signTransaction } = useWallet();
-
+  const { publicKey, signTransaction, sendTransaction } = useWallet();
+  const pumpAmmSdk = new PumpAmmSdk(connection);
   // 状态管理
   const [tokenAddress, setTokenAddress] = useState("");
+  const [poolAddress, setPoolAddress] = useState("");
   const [amount, setAmount] = useState("");
   const [action, setAction] = useState<"buy" | "sell">("buy");
   const [tokenInfo, setTokenInfo] = useState<any>(null);
@@ -19,77 +22,56 @@ export default function PumpSwap() {
   const [status, setStatus] = useState("");
   const [txHistory, setTxHistory] = useState<any[]>([]);
 
-  // 获取代币信息
-  const fetchTokenInfo = async () => {
-    if (!tokenAddress) return;
-
-    try {
-      setStatus("获取代币信息...");
-      const response = await axios.get(`${PUMP_API}/tokens/${tokenAddress}`);
-      setTokenInfo(response.data);
-      setPrice(response.data.price);
-      setStatus("");
-    } catch (error) {
-      setStatus("获取代币信息失败");
-      console.error(error);
+  const buy = () => {
+    if (!amount || !poolAddress) {
+      console.info("无效输入");
+      return;
     }
+    const qutoeAmout = Number(amount) * LAMPORTS_PER_SOL;
+    pumpAmmSwap(new PublicKey(poolAddress), new BN(qutoeAmout));
   };
 
-  // 获取交易历史
-  const fetchTxHistory = async () => {
-    if (!tokenAddress) return;
-
-    try {
-      const response = await axios.get(`${PUMP_API}/history/${tokenAddress}`);
-      setTxHistory(response.data.slice(0, 5));
-    } catch (error) {
-      console.error("获取历史失败:", error);
-    }
+  const fetchPumpPool = async () => {
+    const info = await pumpAmmSdk.fetchPool(new PublicKey(poolAddress));
+    console.info(info);
   };
 
-  // 执行交易
-  const executeTrade = async () => {
-    if (!publicKey || !signTransaction || !tokenAddress || !amount) return;
-
+  const pumpAmmSwap = async (
+    pool: PublicKey,
+    quoteAmount: BN,
+    slippage = 5
+  ) => {
+    if (!publicKey || !signTransaction) return;
     try {
-      setStatus("准备交易...");
-
-      // 1. 获取最新交易参数
-      const { data: quote } = await axios.post(`${PUMP_API}/quote`, {
-        tokenAddress,
-        action,
-        amount: parseFloat(amount),
-        userAddress: publicKey.toBase58(),
-      });
-
-      // 2. 构建交易
-      const transaction = Transaction.from(
-        Buffer.from(quote.transaction, "base64")
+      const baseAmout = await pumpAmmSdk.swapAutocompleteBaseFromQuote(
+        pool,
+        quoteAmount,
+        slippage,
+        "quoteToBase"
       );
-
-      setStatus("签名交易...");
-      const signedTx = await signTransaction(transaction);
-
-      setStatus("发送交易...");
-      const txid = await connection.sendRawTransaction(signedTx.serialize());
-
-      setStatus("确认中...");
-      await connection.confirmTransaction(txid);
-
-      setStatus(`${action === "buy" ? "购买" : "出售"}成功!`);
-      fetchTokenInfo(); // 刷新信息
-      fetchTxHistory(); // 刷新历史
+      const swapInstructions = await pumpAmmSdk.swapBaseInstructions(
+        pool,
+        baseAmout,
+        slippage,
+        "quoteToBase",
+        publicKey
+      );
+      const transaction = new Transaction().add(...swapInstructions);
+      transaction.feePayer = publicKey;
+      const { blockhash, lastValidBlockHeight } =
+        await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      const signature = await sendTransaction(transaction, connection);
+      await connection.confirmTransaction({
+        signature,
+        blockhash,
+        lastValidBlockHeight,
+      });
+      console.info("交易成功");
     } catch (error) {
-      console.error("交易失败:", error);
-      setStatus(`错误: ${error instanceof Error ? error.message : "交易失败"}`);
+      console.info("交易失败", error);
     }
   };
-
-  // 自动获取信息
-  useEffect(() => {
-    fetchTokenInfo();
-    fetchTxHistory();
-  }, [tokenAddress]);
 
   return (
     <div className="pump-swap-container">
@@ -98,23 +80,12 @@ export default function PumpSwap() {
       <div className="input-group">
         <input
           type="text"
-          value={tokenAddress}
-          onChange={(e) => setTokenAddress(e.target.value)}
-          placeholder="输入代币地址"
+          value={poolAddress}
+          onChange={(e) => setPoolAddress(e.target.value)}
+          placeholder="输入流动池地址"
         />
-        <button onClick={fetchTokenInfo}>查询</button>
+        <button onClick={() => fetchPumpPool()}>查询</button>
       </div>
-
-      {tokenInfo && (
-        <div className="token-info">
-          <h3>
-            {tokenInfo.name} ({tokenInfo.symbol})
-          </h3>
-          <p>价格: {price} SOL</p>
-          <p>市值: {tokenInfo.marketCap} SOL</p>
-          <p>流动性: {tokenInfo.liquidity} SOL</p>
-        </div>
-      )}
 
       <div className="trade-panel">
         <div className="action-selector">
@@ -133,47 +104,21 @@ export default function PumpSwap() {
         </div>
 
         <input
-          type="number"
+          type="text"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           placeholder={`输入要${action === "buy" ? "购买" : "出售"}的数量`}
         />
 
         <button
-          onClick={executeTrade}
-          disabled={!tokenAddress || !amount || !publicKey || !!status}
+          onClick={() => {
+            buy();
+          }}
           className="trade-button"
         >
           {status || `${action === "buy" ? "购买" : "出售"}代币`}
         </button>
-
-        {action === "buy" && amount && price && (
-          <p className="estimate">
-            预计支付: {(parseFloat(amount) * price).toFixed(6)} SOL
-          </p>
-        )}
       </div>
-
-      {txHistory.length > 0 && (
-        <div className="tx-history">
-          <h4>最近交易</h4>
-          <ul>
-            {txHistory.map((tx, i) => (
-              <li key={i}>
-                <span className={tx.action}>{tx.action}</span>
-                {tx.amount} {tokenInfo?.symbol} @ {tx.price} SOL
-                <a
-                  href={`https://solscan.io/tx/${tx.txid}?cluster=devnet`}
-                  target="_blank"
-                  rel="noopener"
-                >
-                  查看
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       <style>{`
         .pump-swap-container {
